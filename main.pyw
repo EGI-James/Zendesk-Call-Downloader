@@ -9,11 +9,12 @@ from tkinter import filedialog
 from tkinter import *
 from tkcalendar import Calendar
 from tkinter import messagebox
+from tkinter import ttk
 
 from dotenv import load_dotenv
 
 #save location and file type variables
-path_folder = ""
+path_folder = "-"
 file_type = ".mp3"
 
 # Create variables
@@ -34,81 +35,90 @@ def load_UI():
     global root
     root = tk.Tk()
     #root.withdraw()
-    root.geometry("500x700")
+    root.geometry("500x800")
     root.title("Zendesk Call Downloading")
 
     menu = Menu(root, tearoff = 0)
     root.config(menu=menu)
-    options_menu = Menu(menu)
+    options_menu = Menu(menu, tearoff = 0)
     menu.add_cascade(label='Options', menu=options_menu)
     options_menu.add_command(label='Edit Credentials', command=edit_credentials)
     options_menu.add_separator()
     options_menu.add_command(label='Quit', command=quit)
     
-    # credentials_label = Label(root, text='Credentials File:')
-    # credentials_label.grid(row=0, column=0)
-    # credentials_button = tk.Button(root, text="Choose File", command=get_credentials)
-    # credentials_button.grid(row=0, column=1)
+    root.columnconfigure(0, weight=3)
+    root.columnconfigure(1, weight=3)
 
-    save_location_label = Label(root, text='Save Location:')
-    save_location_label.grid(row=1, column=0)
-    save_location_button = tk.Button(root, text="Choose Folder", command=get_save_location)
-    save_location_button.grid(row=1, column=1)
+    title_label = ttk.Label(root, text="Zendesk Call Downloading", anchor=CENTER, font=("Arial", 20, "bold"))
+    title_label.grid(row=0, columnspan=2, pady=(20, 0))
 
-    start_date_label = Label(root, text='Start Date:')
-    start_date_label.grid(row=2, column=0)
+    save_location_labelFrame = ttk.Labelframe(root, text='Save Location')
+    save_location_labelFrame.grid(row=1, column=0, columnspan=2, pady=(20, 10))
+    save_location_button = ttk.Button(save_location_labelFrame, text="Choose Folder", command=get_save_location)
+    save_location_button.grid(row=0, column=0, sticky=W, pady=20, padx=100)
+    global save_location_label
+    save_location_label = ttk.Label(save_location_labelFrame, text=path_folder, wraplength=200, justify=CENTER)
+    save_location_label.grid(row=1, column=0, pady=10)
+
+    dates_labelFrame = ttk.Labelframe(root, text='Date Range')
+    dates_labelFrame.grid(row=2, column=0, columnspan=2, pady=10)
+    start_date_label = ttk.Label(dates_labelFrame, text='Start Date')
+    start_date_label.grid(row=0, column=0, sticky=E, pady=20)
     todays_date = date.today()
     global cal_start
-    cal_start = Calendar(root, selectmode = 'day', date_pattern="yyy-mm-dd",
+    cal_start = Calendar(dates_labelFrame, selectmode = 'day', date_pattern="yyy-mm-dd",
                year = todays_date.year, month = todays_date.month,
                day = todays_date.day)
 
-    cal_start.grid(row=2, column=1)
+    cal_start.grid(row=0, column=1, sticky=W, pady=20, padx=20)
 
-    end_date_label = Label(root, text='End Date:')
-    end_date_label.grid(row=3, column=0)
+    end_date_label = Label(dates_labelFrame, text='End Date')
+    end_date_label.grid(row=1, column=0, sticky=E, pady=20)
     global cal_end
-    cal_end = Calendar(root, selectmode = 'day', date_pattern="yyy-mm-dd",
+    cal_end = Calendar(dates_labelFrame, selectmode = 'day', date_pattern="yyy-mm-dd",
                year = todays_date.year, month = todays_date.month,
                day = todays_date.day)
 
-    cal_end.grid(row=3, column=1)
+    cal_end.grid(row=1, column=1, sticky=W, pady=20, padx=20)
 
-    start_button = tk.Button(root, text="Start", command=start_process)
-    start_button.grid(row=4, column=1)
+    start_button = ttk.Button(root, text="Start", command=start_process)
+    start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
     # cancel_button = tk.Button(root, text="Cancel", command=cancel_process)
-    # cancel_button.grid(row=4, column=1)
+    # cancel_button.grid(row=3, column=1)
 
-    exit_button = tk.Button(root, text="Quit", command=quit)
-    exit_button.grid(row=4, column=0)
+    exit_button = ttk.Button(root, text="Quit", command=quit)
+    exit_button.grid(row=3, column=0, sticky=E, pady=(10, 20))
 
 def edit_credentials():
     print ("--- Editing Credentials ---")
     global credentials_popup, ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
     credentials_popup = Toplevel()
-    credentials_popup.geometry("400x400")
+    credentials_popup.geometry("450x120")
     credentials_popup.title("Credentials")
+    
+    frame = Frame(credentials_popup)
+    frame.grid(row=0, column=0, padx=20, pady=20)
 
-    subdomain_label = Label(credentials_popup, text='Zendesk Subdomain')
+    subdomain_label = ttk.Label(frame, text='Zendesk Subdomain', anchor=CENTER)
     subdomain_label.grid(row=0, column=0)
-    subdomain_entry = Entry(credentials_popup)
+    subdomain_entry = ttk.Entry(frame, width=50)
     subdomain_entry.grid(row=0, column=1)
     subdomain_entry.insert(END, ZENDESK_SUBDOMAIN)
 
-    email_label = Label(credentials_popup, text='Email')
+    email_label = ttk.Label(frame, text='Email', anchor=CENTER)
     email_label.grid(row=1, column=0)
-    email_entry = Entry(credentials_popup)
+    email_entry = ttk.Entry(frame, width=50)
     email_entry.grid(row=1, column=1)
     email_entry.insert(END, ZENDESK_EMAIL)
 
-    token_label = Label(credentials_popup, text='Zendesk API Token')
+    token_label = ttk.Label(frame, text='Zendesk API Token', anchor=CENTER)
     token_label.grid(row=2, column=0)
-    token_entry = Entry(credentials_popup)
+    token_entry = ttk.Entry(frame, width=50)
     token_entry.grid(row=2, column=1)
     token_entry.insert(END, ZENDESK_TOKEN)
 
-    save_button = tk.Button(credentials_popup, text="Save", command=lambda: save_credentials(subdomain_entry.get(), email_entry.get(), token_entry.get()))
+    save_button = ttk.Button(frame, text="Save", command=lambda: save_credentials(subdomain_entry.get(), email_entry.get(), token_entry.get()))
     save_button.grid(row=3, column=0)
 
 def save_credentials(subdomain, email, token):
@@ -138,12 +148,13 @@ def get_credentials():
     
 
 def get_save_location():
-    global path_folder
+    global path_folder, save_location_label
 
     #set save location
     print("Pick a save location: ")
     path_folder = filedialog.askdirectory()+"/"
     print("Save location set as: "+path_folder)
+    save_location_label.config(text=path_folder)
 
 def get_date_range():
     print("Getting date range...")
