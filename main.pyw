@@ -12,6 +12,8 @@ from tkinter import messagebox
 from tkinter import ttk
 from tkinter.ttk import *
 
+from tktooltip import ToolTip
+
 from dotenv import load_dotenv
 
 import threading
@@ -35,6 +37,9 @@ stop_process = False
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
     get_credentials()
+    #t2 is the thread for the searching/downloading process
+    global t2
+    t2 = threading.Thread(target=find_tickets_with_recordings, args=(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE))
     load_UI()
 
 def load_UI():
@@ -112,6 +117,7 @@ def edit_credentials():
 
     subdomain_label = ttk.Label(frame, text='Zendesk Subdomain', anchor=CENTER)
     subdomain_label.grid(row=0, column=0)
+    ToolTip(subdomain_label, msg="This is a tooltip", delay=2.0)
     subdomain_entry = ttk.Entry(frame, width=50)
     subdomain_entry.grid(row=0, column=1)
     subdomain_entry.insert(END, ZENDESK_SUBDOMAIN)
@@ -366,8 +372,7 @@ def start_process():
 
         progress_bar.grid(row=4, columnspan=2)
         progress_bar.start()
-        
-        t2 = threading.Thread(target=find_tickets_with_recordings, args=(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE))
+
         t2.start()
         #test_ticket_id = "66552"
         #download_call_recording(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, test_ticket_id)
@@ -394,8 +399,9 @@ def quit():
     if close:
         print("Quitting Application...")
         if(t2.is_alive):
-            stop_process = True
-            t2.join()
+            cancel_process()
+            if(t2.is_alive):
+                t2.join()
         root.destroy()
         sys.exit
 
