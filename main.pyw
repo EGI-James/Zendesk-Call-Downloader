@@ -10,13 +10,16 @@ from tkinter import *
 from tkcalendar import Calendar
 from tkinter import messagebox
 
-ZENDESK_SUBDOMAIN = None
-ZENDESK_EMAIL = None
-ZENDESK_TOKEN = None
+from dotenv import load_dotenv
 
 #save location and file type variables
 path_folder = ""
 file_type = ".mp3"
+
+# Create variables
+ZENDESK_SUBDOMAIN = ""
+ZENDESK_EMAIL = ""
+ZENDESK_TOKEN = ""
 
 #Dates in yyyy-mm-dd format
 START_DATE = "2025-01-01"
@@ -24,6 +27,7 @@ END_DATE = "2025-01-03"
 
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
+    get_credentials()
     load_UI()
 
 def load_UI():
@@ -33,18 +37,18 @@ def load_UI():
     root.geometry("500x700")
     root.title("Zendesk Call Downloading")
 
-    menu = Menu(root)
+    menu = Menu(root, tearoff = 0)
     root.config(menu=menu)
     options_menu = Menu(menu)
     menu.add_cascade(label='Options', menu=options_menu)
-    options_menu.add_command(label='N/A')
+    options_menu.add_command(label='Edit Credentials', command=edit_credentials)
     options_menu.add_separator()
     options_menu.add_command(label='Quit', command=quit)
     
-    credentials_label = Label(root, text='Credentials File:')
-    credentials_label.grid(row=0, column=0)
-    credentials_button = tk.Button(root, text="Choose File", command=get_credentials)
-    credentials_button.grid(row=0, column=1)
+    # credentials_label = Label(root, text='Credentials File:')
+    # credentials_label.grid(row=0, column=0)
+    # credentials_button = tk.Button(root, text="Choose File", command=get_credentials)
+    # credentials_button.grid(row=0, column=1)
 
     save_location_label = Label(root, text='Save Location:')
     save_location_label.grid(row=1, column=0)
@@ -79,19 +83,59 @@ def load_UI():
     exit_button = tk.Button(root, text="Quit", command=quit)
     exit_button.grid(row=4, column=0)
 
+def edit_credentials():
+    print ("--- Editing Credentials ---")
+    global credentials_popup, ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
+    credentials_popup = Toplevel()
+    credentials_popup.geometry("400x400")
+    credentials_popup.title("Credentials")
+
+    subdomain_label = Label(credentials_popup, text='Zendesk Subdomain')
+    subdomain_label.grid(row=0, column=0)
+    subdomain_entry = Entry(credentials_popup)
+    subdomain_entry.grid(row=0, column=1)
+    subdomain_entry.insert(END, ZENDESK_SUBDOMAIN)
+
+    email_label = Label(credentials_popup, text='Email')
+    email_label.grid(row=1, column=0)
+    email_entry = Entry(credentials_popup)
+    email_entry.grid(row=1, column=1)
+    email_entry.insert(END, ZENDESK_EMAIL)
+
+    token_label = Label(credentials_popup, text='Zendesk API Token')
+    token_label.grid(row=2, column=0)
+    token_entry = Entry(credentials_popup)
+    token_entry.grid(row=2, column=1)
+    token_entry.insert(END, ZENDESK_TOKEN)
+
+    save_button = tk.Button(credentials_popup, text="Save", command=lambda: save_credentials(subdomain_entry.get(), email_entry.get(), token_entry.get()))
+    save_button.grid(row=3, column=0)
+
+def save_credentials(subdomain, email, token):
+    print ("--- Saving Credentials --")
+
+    # Create .env file if it doesn't exist
+    with open(".env", "w") as f:
+        f.write("SUBDOMAIN="+subdomain +"\n"+"EMAIL="+email+"\n"+"API_TOKEN="+token+"\n")
+
+    get_credentials()
+
+    #close popup
+    credentials_popup.destroy()
+
 def get_credentials():
-    global credentials_file, ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
+    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
 
-    #load credentials
-    #Credentials text file holds domain, email, and API Token in that order, each on a new line
-    print("First, select your credentials file. This should include the subdomain (e.g. 'yourcompany'), your email (e.g. 'yourname@yourcompany.com'), and API token (found in Zendesk Admin Settings): ")
-    credentials_file = filedialog.askopenfilename()
-
-    f = open(credentials_file, "r")
-    credentials = f.read().splitlines()
-    ZENDESK_SUBDOMAIN = credentials[0]
-    ZENDESK_EMAIL = credentials[1]
-    ZENDESK_TOKEN = credentials[2]
+    # Load environment variables if they exist
+    if (os.path.isfile('.env')):
+        #load from .env file. Override if already loaded
+        load_dotenv(override=True)
+        
+        ZENDESK_SUBDOMAIN = os.getenv("SUBDOMAIN")
+        ZENDESK_EMAIL = os.getenv("EMAIL")
+        ZENDESK_TOKEN = os.getenv("API_TOKEN")
+        print (ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN)
+    
 
 def get_save_location():
     global path_folder
@@ -111,7 +155,6 @@ def get_date_range():
 
     print("Start Date: "+START_DATE)
     print("End Date: "+END_DATE)
-
 
 def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, ticket_id):
     """
@@ -171,7 +214,7 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
             
             #check if this is the only recording for this ticket
             if(recording_counter > 0):
-                new_filename = f"#{ticket_id}({recording_counter})"
+                new_filename = f"#{ticket_id} {recording_counter+1}"
             else:
                 new_filename = f"#{ticket_id}"
             
@@ -250,7 +293,7 @@ def validate_settings():
     print("Validating Settings...")
 
     #Validate credentials
-    if ZENDESK_SUBDOMAIN == None or ZENDESK_TOKEN == None or os.path.isfile(credentials_file) == False:
+    if ZENDESK_SUBDOMAIN == None or ZENDESK_TOKEN == None:
         return("Something went wrong when populating your credentials.")
 
     #Validate save location
