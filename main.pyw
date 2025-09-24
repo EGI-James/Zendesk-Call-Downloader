@@ -10,8 +10,11 @@ from tkinter import *
 from tkcalendar import Calendar
 from tkinter import messagebox
 from tkinter import ttk
+from tkinter.ttk import *
 
 from dotenv import load_dotenv
+
+import threading
 
 #save location and file type variables
 path_folder = "-"
@@ -25,6 +28,9 @@ ZENDESK_TOKEN = ""
 #Dates in yyyy-mm-dd format
 START_DATE = "2025-01-01"
 END_DATE = "2025-01-03"
+
+#Used for stopping the searching/downloading process
+stop_process = False
 
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
@@ -81,14 +87,18 @@ def load_UI():
 
     cal_end.grid(row=1, column=1, sticky=W, pady=20, padx=20)
 
+    global start_button
     start_button = ttk.Button(root, text="Start", command=start_process)
     start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
-    # cancel_button = tk.Button(root, text="Cancel", command=cancel_process)
-    # cancel_button.grid(row=3, column=1)
+    global cancel_button
+    cancel_button = ttk.Button(root, text="Cancel", command=cancel_process)
 
     exit_button = ttk.Button(root, text="Quit", command=quit)
     exit_button.grid(row=3, column=0, sticky=E, pady=(10, 20))
+
+    global progress_bar
+    progress_bar = ttk.Progressbar(root, orient = HORIZONTAL, length = 400, mode = 'indeterminate')
 
 def edit_credentials():
     print ("--- Editing Credentials ---")
@@ -146,7 +156,6 @@ def get_credentials():
         ZENDESK_TOKEN = os.getenv("API_TOKEN")
         print (ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN)
     
-
 def get_save_location():
     global path_folder, save_location_label
 
@@ -258,6 +267,7 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
         start_date_str (str): The start date in 'YYYY-MM-DD' format.
         end_date_str (str): The end date in 'YYYY-MM-DD' format.
     """
+    global stop_process, start_button, cancel_button
     
     search_url = f"https://{zendesk_subdomain}.zendesk.com/api/v2/search.json"
     auth = (f"{zendesk_email}/token", zendesk_token)
@@ -273,6 +283,8 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
     next_page_url = search_url
     
     try:
+        if stop_process == True:
+            return
         while has_more_results:
             response = requests.get(next_page_url, auth=auth, params=params if next_page_url == search_url else None)
             response.raise_for_status()
@@ -284,6 +296,8 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
                 break
                 
             for ticket in results:
+                if stop_process == True:
+                    return
                 ticket_id = ticket['id']
                 # The download_call_recording function handles checking for a recording
                 download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, ticket_id)
@@ -299,6 +313,12 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
         print("Please check your Zendesk subdomain, email, and API token or the date format.")
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
+    
+    print("\nProcess complete.")
+    progress_bar.stop()
+    progress_bar.grid_remove()
+    cancel_button.grid_remove()
+    start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
 def validate_settings():
     print("Validating Settings...")
@@ -339,14 +359,29 @@ def start_process():
     if ZENDESK_SUBDOMAIN == None or ZENDESK_TOKEN == None:
         print("Something went wrong when populating the credentials.")
     else:
-        find_tickets_with_recordings(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE)
+        global progress_bar, cancel_button, start_button, t2
+
+        cancel_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
+        start_button.grid_remove()
+
+        progress_bar.grid(row=4, columnspan=2)
+        progress_bar.start()
+        
+        t2 = threading.Thread(target=find_tickets_with_recordings, args=(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE))
+        t2.start()
         #test_ticket_id = "66552"
         #download_call_recording(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, test_ticket_id)
-        
-    print("\nProcess complete.")
 
 def cancel_process():
     print("--- Cancelling Process ---")
+    global stop_process, progress_bar
+    stop_process = True
+
+    progress_bar.stop()
+    progress_bar.grid_remove()
+
+    cancel_button.grid_remove()
+    start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
 def main_loop():
     global root
@@ -354,9 +389,13 @@ def main_loop():
         root.update()
 
 def quit():
+    global t2, stop_process
     close = messagebox.askyesno("Exit?", "Are you sure you want to exit?")
     if close:
         print("Quitting Application...")
+        if(t2.is_alive):
+            stop_process = True
+            t2.join()
         root.destroy()
         sys.exit
 
