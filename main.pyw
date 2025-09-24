@@ -10,22 +10,19 @@ from tkinter import *
 from tkcalendar import Calendar
 from tkinter import messagebox
 
-#import pyi_splash
-
 ZENDESK_SUBDOMAIN = None
 ZENDESK_EMAIL = None
 ZENDESK_TOKEN = None
 
-#specify save location and file type
+#save location and file type variables
 path_folder = ""
 file_type = ".mp3"
 
-START_DATE = "2025-09-15"
-END_DATE = "2025-09-17"
+#Dates in yyyy-mm-dd format
+START_DATE = "2025-01-01"
+END_DATE = "2025-01-03"
 
 def set_up():
-    #pyi_splash.update_text("Starting Zendesk Call Recording Download Tool...")
-    Time.sleep(3)
     print("Starting Zendesk Call Recording Download Tool...")
     load_UI()
 
@@ -76,6 +73,9 @@ def load_UI():
     start_button = tk.Button(root, text="Start", command=start_process)
     start_button.grid(row=4, column=1)
 
+    # cancel_button = tk.Button(root, text="Cancel", command=cancel_process)
+    # cancel_button.grid(row=4, column=1)
+
     exit_button = tk.Button(root, text="Quit", command=quit)
     exit_button.grid(row=4, column=0)
 
@@ -86,8 +86,6 @@ def get_credentials():
     #Credentials text file holds domain, email, and API Token in that order, each on a new line
     print("First, select your credentials file. This should include the subdomain (e.g. 'yourcompany'), your email (e.g. 'yourname@yourcompany.com'), and API token (found in Zendesk Admin Settings): ")
     credentials_file = filedialog.askopenfilename()
-
-    #check if file is valid
 
     f = open(credentials_file, "r")
     credentials = f.read().splitlines()
@@ -100,7 +98,7 @@ def get_save_location():
 
     #set save location
     print("Pick a save location: ")
-    path_folder = filedialog.askdirectory()
+    path_folder = filedialog.askdirectory()+"/"
     print("Save location set as: "+path_folder)
 
 def get_date_range():
@@ -121,15 +119,6 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
     
     This function uses the Zendesk API to fetch the latest audit for a ticket,
     which may contain the call recording URL. It then downloads the file.
-    
-    Args:
-        zendesk_subdomain (str): Your Zendesk subdomain (e.g., 'yourcompany').
-        zendesk_email (str): The email address of your Zendesk account.
-        zendesk_token (str): Your Zendesk API token.
-        ticket_id (str): The ID of the Zendesk ticket.
-    
-    Returns:
-        bool: True if the download and renaming were successful, False otherwise.
     """
     
     # -----------------------------------------------------------
@@ -140,6 +129,8 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
     
     print(f"Searching for recording for ticket {ticket_id}...")
     
+    recording_urls = []
+
     try:
         response = requests.get(audits_url, auth=auth)
         response.raise_for_status()
@@ -150,25 +141,18 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
         # Locate the Call Recording URL
         # -----------------------------------------------------------
         recording_url = None
-        #print (response.json())
         if 'audits' in data and data['audits']:
             for audit in reversed(data['audits']):
                 for event in audit['events']:
-                    #print ("Event ID: "+str(event.get("id")))
-                    #print ("Event Type: "+str(event.get("type")))
                     if event.get('type') == 'VoiceComment' and event.get('data'):
                         print ("---VoiceComment Found---")
                         for data in event.get('data'):
-                            #print("Data: "+str(event['data']))
                             if data == "recording_url":
-                                #print("--data--: "+data)
                                 print ("Getting Recording URL")
                                 recording_url = event['data'].get('recording_url')
                                 print ("---Recording Found---")
                                 print(f"Found recording URL: {recording_url}")
-                                break
-                if recording_url:
-                    break
+                                recording_urls.append(recording_url) #add url to list of urls for ticket
         
         if not recording_url:
             print(f"No call recording found for ticket {ticket_id}. Skipping.")
@@ -177,22 +161,29 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
         # -----------------------------------------------------------
         # Download the Audio File
         # -----------------------------------------------------------
-        print(f"Downloading audio file for ticket {ticket_id}...")
-        
-        audio_response = requests.get(recording_url, stream=True, auth=auth)
-        audio_response.raise_for_status()
-        
-        original_filename = os.path.basename(audio_response.url).split('?')[0]
-        
-        new_filename = f"ZD{ticket_id}_{original_filename}"
-        save_path = path_folder + new_filename + file_type
-        
-        with open(save_path, 'wb') as f:
-            for chunk in audio_response.iter_content(chunk_size=8192):
-                f.write(chunk)
-                
-        print(f"Download complete. File saved as: {new_filename}")
-        return True
+        print(f"Downloading audio file(s) for ticket {ticket_id}...")
+        recording_counter = 0
+
+        for recording in recording_urls:
+
+            audio_response = requests.get(recording, stream=True, auth=auth)
+            audio_response.raise_for_status()
+            
+            #check if this is the only recording for this ticket
+            if(recording_counter > 0):
+                new_filename = f"#{ticket_id}({recording_counter})"
+            else:
+                new_filename = f"#{ticket_id}"
+            
+            save_path = path_folder + new_filename + file_type
+            
+            with open(save_path, 'wb') as f:
+                for chunk in audio_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+            recording_counter += 1
+
+            print(f"Download complete. File saved as: {new_filename}")
 
     except requests.exceptions.HTTPError as err:
         print(f"HTTP Error: {err}")
@@ -201,8 +192,6 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
         print(f"An error occurred: {err}")
     except Exception as err:
         print(f"An unexpected error occurred: {err}")
-        
-    return False
 
 def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token, start_date_str, end_date_str):
     """
@@ -244,7 +233,7 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
                 ticket_id = ticket['id']
                 # The download_call_recording function handles checking for a recording
                 download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, ticket_id)
-                time.sleep(1) # Add a small delay
+                Time.sleep(1) # Add a small delay
                 
             has_more_results = data.get('next_page') is not None
             if has_more_results:
@@ -301,6 +290,9 @@ def start_process():
         #download_call_recording(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, test_ticket_id)
         
     print("\nProcess complete.")
+
+def cancel_process():
+    print("--- Cancelling Process ---")
 
 def main_loop():
     global root
