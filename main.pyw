@@ -28,18 +28,20 @@ ZENDESK_EMAIL = ""
 ZENDESK_TOKEN = ""
 
 #Dates in yyyy-mm-dd format
+global START_DATE, END_DATE
 START_DATE = "2025-01-01"
 END_DATE = "2025-01-03"
 
 #Used for stopping the searching/downloading process
 stop_process = False
+process_running = False
+
+#Time to wait (seconds) between downloads to try and stay within API rate limits
+rate_limit_delay = 1
 
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
     get_credentials()
-    #t2 is the thread for the searching/downloading process
-    global t2
-    t2 = threading.Thread(target=find_tickets_with_recordings, args=(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE))
     load_UI()
 
 def load_UI():
@@ -67,6 +69,7 @@ def load_UI():
     save_location_labelFrame.grid(row=1, column=0, columnspan=2, pady=(20, 10))
     save_location_button = ttk.Button(save_location_labelFrame, text="Choose Folder", command=get_save_location)
     save_location_button.grid(row=0, column=0, sticky=W, pady=20, padx=100)
+    ToolTip(save_location_button, msg="Where the recordings are downloaded to", delay=2.0)
     global save_location_label
     save_location_label = ttk.Label(save_location_labelFrame, text=path_folder, wraplength=200, justify=CENTER)
     save_location_label.grid(row=1, column=0, pady=10)
@@ -75,6 +78,8 @@ def load_UI():
     dates_labelFrame.grid(row=2, column=0, columnspan=2, pady=10)
     start_date_label = ttk.Label(dates_labelFrame, text='Start Date')
     start_date_label.grid(row=0, column=0, sticky=E, pady=20)
+    ToolTip(start_date_label, msg="The start of the date range to search (exclusive)", delay=2.0)
+
     todays_date = date.today()
     global cal_start
     cal_start = Calendar(dates_labelFrame, selectmode = 'day', date_pattern="yyy-mm-dd",
@@ -85,6 +90,7 @@ def load_UI():
 
     end_date_label = Label(dates_labelFrame, text='End Date')
     end_date_label.grid(row=1, column=0, sticky=E, pady=20)
+    ToolTip(end_date_label, msg="The end of the date range to search (exclusive)", delay=2.0)
     global cal_end
     cal_end = Calendar(dates_labelFrame, selectmode = 'day', date_pattern="yyy-mm-dd",
                year = todays_date.year, month = todays_date.month,
@@ -117,19 +123,21 @@ def edit_credentials():
 
     subdomain_label = ttk.Label(frame, text='Zendesk Subdomain', anchor=CENTER)
     subdomain_label.grid(row=0, column=0)
-    ToolTip(subdomain_label, msg="This is a tooltip", delay=2.0)
+    ToolTip(subdomain_label, msg="e.g. 'yourcompany'", delay=2.0)
     subdomain_entry = ttk.Entry(frame, width=50)
     subdomain_entry.grid(row=0, column=1)
     subdomain_entry.insert(END, ZENDESK_SUBDOMAIN)
 
     email_label = ttk.Label(frame, text='Email', anchor=CENTER)
     email_label.grid(row=1, column=0)
+    ToolTip(email_label, msg="e.g. 'yourname@yourcompany.com'", delay=2.0)
     email_entry = ttk.Entry(frame, width=50)
     email_entry.grid(row=1, column=1)
     email_entry.insert(END, ZENDESK_EMAIL)
 
     token_label = ttk.Label(frame, text='Zendesk API Token', anchor=CENTER)
     token_label.grid(row=2, column=0)
+    ToolTip(token_label, msg="Found in the Zendesk Admin Centre", delay=2.0)
     token_entry = ttk.Entry(frame, width=50)
     token_entry.grid(row=2, column=1)
     token_entry.insert(END, ZENDESK_TOKEN)
@@ -217,10 +225,9 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
                         print ("---VoiceComment Found---")
                         for data in event.get('data'):
                             if data == "recording_url":
-                                print ("Getting Recording URL")
                                 recording_url = event['data'].get('recording_url')
                                 print ("---Recording Found---")
-                                print(f"Found recording URL: {recording_url}")
+                                #print(f"Found recording URL: {recording_url}")
                                 recording_urls.append(recording_url) #add url to list of urls for ticket
         
         if not recording_url:
@@ -236,7 +243,12 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
         for recording in recording_urls:
 
             audio_response = requests.get(recording, stream=True, auth=auth)
-            audio_response.raise_for_status()
+            
+            #check the status codes of the response
+            #410 - Missing file
+            if(audio_response.status_code == 410):
+                print("Recording file may have been deleted for ticket "+str(ticket_id)+". Skipping...")
+                return False
             
             #check if this is the only recording for this ticket
             if(recording_counter > 0):
@@ -255,25 +267,20 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
             print(f"Download complete. File saved as: {new_filename}")
 
     except requests.exceptions.HTTPError as err:
-        print(f"HTTP Error: {err}")
-        print(f"Please check your Zendesk subdomain, email, and API token.")
+            print(f"HTTP Error: {err}")
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
     except Exception as err:
         print(f"An unexpected error occurred: {err}")
+    return True
 
 def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token, start_date_str, end_date_str):
     """
     Finds and downloads call recordings for tickets created within a specified date range.
-
-    Args:
-        zendesk_subdomain (str): Your Zendesk subdomain.
-        zendesk_email (str): The email address of your Zendesk account.
-        zendesk_token (str): Your Zendesk API token.
-        start_date_str (str): The start date in 'YYYY-MM-DD' format.
-        end_date_str (str): The end date in 'YYYY-MM-DD' format.
     """
-    global stop_process, start_button, cancel_button
+    global stop_process, start_button, cancel_button, process_running, rate_limit_delay
+
+    process_running = True
     
     search_url = f"https://{zendesk_subdomain}.zendesk.com/api/v2/search.json"
     auth = (f"{zendesk_email}/token", zendesk_token)
@@ -300,6 +307,8 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
             if not results:
                 print("No tickets found in the specified date range.")
                 break
+
+            print("Number of tickets found: "+str(len(results)))
                 
             for ticket in results:
                 if stop_process == True:
@@ -307,7 +316,7 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
                 ticket_id = ticket['id']
                 # The download_call_recording function handles checking for a recording
                 download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, ticket_id)
-                Time.sleep(1) # Add a small delay
+                Time.sleep(rate_limit_delay) # Add a small delay
                 
             has_more_results = data.get('next_page') is not None
             if has_more_results:
@@ -319,12 +328,10 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
         print("Please check your Zendesk subdomain, email, and API token or the date format.")
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
+    except:
+        print("Something has gone wrong")
     
     print("\nProcess complete.")
-    progress_bar.stop()
-    progress_bar.grid_remove()
-    cancel_button.grid_remove()
-    start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
 def validate_settings():
     print("Validating Settings...")
@@ -365,7 +372,10 @@ def start_process():
     if ZENDESK_SUBDOMAIN == None or ZENDESK_TOKEN == None:
         print("Something went wrong when populating the credentials.")
     else:
-        global progress_bar, cancel_button, start_button, t2
+        global progress_bar, cancel_button, start_button, t2, stop_process
+
+        #t2 is the thread for the searching/downloading process
+        t2 = threading.Thread(target=find_tickets_with_recordings, args=(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE))
 
         cancel_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
         start_button.grid_remove()
@@ -373,14 +383,17 @@ def start_process():
         progress_bar.grid(row=4, columnspan=2)
         progress_bar.start()
 
+        stop_process = False
         t2.start()
         #test_ticket_id = "66552"
         #download_call_recording(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, test_ticket_id)
 
 def cancel_process():
-    print("--- Cancelling Process ---")
-    global stop_process, progress_bar
-    stop_process = True
+    global stop_process, progress_bar, process_running
+    
+    if(process_running):
+        print("--- Cancelling Process ---")
+        stop_process = True
 
     progress_bar.stop()
     progress_bar.grid_remove()
@@ -389,21 +402,36 @@ def cancel_process():
     start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
 def main_loop():
-    global root
+    global root, t2, process_running
     while True:
         root.update()
+        # Check if process has finished running
+        if(process_running and t2.is_alive() != True):
+            process_running = False
+            cancel_process()
 
 def quit():
     global t2, stop_process
     close = messagebox.askyesno("Exit?", "Are you sure you want to exit?")
     if close:
         print("Quitting Application...")
-        if(t2.is_alive):
-            cancel_process()
-            if(t2.is_alive):
+        if (t2 != None):
+            if(t2.is_alive()):
+                cancel_process()
                 t2.join()
-        root.destroy()
         sys.exit
+        root.destroy()
+
+def show_message(type, title, message):
+    if type.lower()=="info":
+        #create info message box
+        messagebox.showinfo(title, message)
+    elif type.lower()=="warning":
+        #create warning message box
+        messagebox.showwarning(title, message)
+    elif type.lower()=="error":
+        #create error message box
+        messagebox.showerror(title, message)
 
 if __name__ == "__main__":
     set_up()
