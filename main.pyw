@@ -390,16 +390,16 @@ def start_process():
 
 def cancel_process():
     global stop_process, progress_bar, process_running
-    
-    if(process_running):
-        print("--- Cancelling Process ---")
-        stop_process = True
 
     progress_bar.stop()
     progress_bar.grid_remove()
 
     cancel_button.grid_remove()
     start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
+
+    if(process_running):
+        print("--- Cancelling Process ---")
+        stop_process = True
 
 def main_loop():
     global root, t2, process_running
@@ -415,10 +415,12 @@ def quit():
     close = messagebox.askyesno("Exit?", "Are you sure you want to exit?")
     if close:
         print("Quitting Application...")
-        if (t2 != None):
+        try:
             if(t2.is_alive()):
                 cancel_process()
                 t2.join()
+        except NameError:
+            pass
         sys.exit
         root.destroy()
 
