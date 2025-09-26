@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 import threading
 
 #save location and file type variables
-path_folder = "-"
-file_type = ".mp3"
+PATH_FOLDER = "-"
+FILE_TYPE = ".mp3"
 
 # Create variables
 ZENDESK_SUBDOMAIN = ""
@@ -28,7 +28,7 @@ ZENDESK_EMAIL = ""
 ZENDESK_TOKEN = ""
 
 #Dates in yyyy-mm-dd format
-global START_DATE, END_DATE
+DATE_DISPLAY_FORMAT = "dd-mm-yyyy"
 START_DATE = "2025-01-01"
 END_DATE = "2025-01-03"
 
@@ -41,7 +41,7 @@ rate_limit_delay = 1
 
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
-    get_credentials()
+    load_settings()
     load_UI()
 
 def load_UI():
@@ -56,6 +56,7 @@ def load_UI():
     options_menu = Menu(menu, tearoff = 0)
     menu.add_cascade(label='Options', menu=options_menu)
     options_menu.add_command(label='Edit Credentials', command=edit_credentials)
+    options_menu.add_command(label='Edit Preferences', command=edit_prefs)
     options_menu.add_separator()
     options_menu.add_command(label='Quit', command=quit)
     
@@ -71,7 +72,7 @@ def load_UI():
     save_location_button.grid(row=0, column=0, sticky=W, pady=20, padx=100)
     ToolTip(save_location_button, msg="Where the recordings are downloaded to", delay=2.0)
     global save_location_label
-    save_location_label = ttk.Label(save_location_labelFrame, text=path_folder, wraplength=200, justify=CENTER)
+    save_location_label = ttk.Label(save_location_labelFrame, text=PATH_FOLDER, wraplength=200, justify=CENTER)
     save_location_label.grid(row=1, column=0, pady=10)
 
     dates_labelFrame = ttk.Labelframe(root, text='Date Range')
@@ -111,6 +112,72 @@ def load_UI():
     global progress_bar
     progress_bar = ttk.Progressbar(root, orient = HORIZONTAL, length = 400, mode = 'indeterminate')
 
+def edit_prefs():
+    print ("--- Editing Prefs ---")
+
+    global FILE_TYPE, DATE_DISPLAY_FORMAT
+
+    prefs_popup = Toplevel()
+    prefs_popup.geometry("200x100")
+    prefs_popup.title("Preferences")
+
+    frame = Frame(prefs_popup)
+    frame.grid(row=0, column=0, padx=20, pady=20)
+
+    extension_label = ttk.Label(frame, text='File extension', anchor=CENTER)
+    extension_label.grid(row=0, column=0)
+    ToolTip(extension_label, msg="The file extension to use", delay=2.0)
+    extension_entry = ttk.Entry(frame, width=15)
+    extension_entry.insert(END, FILE_TYPE)
+    extension_entry.grid(row=0, column=1, sticky=W)
+
+    date_format_label = ttk.Label(frame, text='Date format', anchor=CENTER)
+    date_format_label.grid(row=2, column=0)
+    ToolTip(date_format_label, msg="The date display format", delay=2.0)
+    date_format_entry = ttk.Entry(frame, width=15)
+    date_format_entry.insert(END, DATE_DISPLAY_FORMAT)
+    date_format_entry.grid(row=2, column=1)
+
+    save_button = ttk.Button(frame, text="Save", command=lambda: save_prefs(extension_entry.get(), file_naming_entry.get(), date_format_entry.get()))
+    save_button.grid(row=3, column=0)
+
+def save_prefs(extension, date_format):
+    print("--- Saving Prefs ---")
+    
+    global FILE_TYPE, DATE_DISPLAY_FORMAT
+
+    FILE_TYPE = extension
+    DATE_DISPLAY_FORMAT = date_format
+
+    save_settings()
+
+def load_settings():
+    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, FILE_TYPE, DATE_DISPLAY_FORMAT
+
+    if (os.path.isfile('.env')):
+        #load from .env file. Override if already loaded
+        load_dotenv(override=True)
+
+        # Load environment variables if they exist
+        if ("SUBDOMAIN" in os.environ):
+            ZENDESK_SUBDOMAIN = os.getenv("SUBDOMAIN")
+        if ("EMAIL" in os.environ):
+            ZENDESK_EMAIL = os.getenv("EMAIL")
+        if ("API_TOKEN" in os.environ):
+            ZENDESK_TOKEN = os.getenv("API_TOKEN")
+        if ("FILE_TYPE" in os.environ):
+            FILE_TYPE = os.getenv("FILE_TYPE")
+        if ("DATE_DISPLAY" in os.environ):
+            DATE_DISPLAY_FORMAT = os.getenv("DATE_DISPLAY")
+
+def save_settings():
+    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, FILE_TYPE
+
+    #Saves all the prefs and credentials
+    # Create .env file if it doesn't exist
+    with open(".env", "w") as f:
+        f.write("SUBDOMAIN="+ZENDESK_SUBDOMAIN +"\n"+"EMAIL="+ZENDESK_EMAIL+"\n"+"API_TOKEN="+ZENDESK_TOKEN+"\n"+"FILE_TYPE="+FILE_TYPE+"\n"+"DATE_DISPLAY="+DATE_DISPLAY_FORMAT+"\n")
+
 def edit_credentials():
     print ("--- Editing Credentials ---")
     global credentials_popup, ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
@@ -148,36 +215,26 @@ def edit_credentials():
 def save_credentials(subdomain, email, token):
     print ("--- Saving Credentials --")
 
-    # Create .env file if it doesn't exist
-    with open(".env", "w") as f:
-        f.write("SUBDOMAIN="+subdomain +"\n"+"EMAIL="+email+"\n"+"API_TOKEN="+token+"\n")
+    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
 
-    get_credentials()
+    ZENDESK_SUBDOMAIN = subdomain
+    ZENDESK_EMAIL = email
+    ZENDESK_TOKEN = token
+
+    save_settings()
+    load_settings()
 
     #close popup
     credentials_popup.destroy()
-
-def get_credentials():
-    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN
-
-    # Load environment variables if they exist
-    if (os.path.isfile('.env')):
-        #load from .env file. Override if already loaded
-        load_dotenv(override=True)
-        
-        ZENDESK_SUBDOMAIN = os.getenv("SUBDOMAIN")
-        ZENDESK_EMAIL = os.getenv("EMAIL")
-        ZENDESK_TOKEN = os.getenv("API_TOKEN")
-        print (ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN)
     
 def get_save_location():
-    global path_folder, save_location_label
+    global PATH_FOLDER, save_location_label
 
     #set save location
     print("Pick a save location: ")
-    path_folder = filedialog.askdirectory()+"/"
-    print("Save location set as: "+path_folder)
-    save_location_label.config(text=path_folder)
+    PATH_FOLDER = filedialog.askdirectory()+"/"
+    print("Save location set as: "+PATH_FOLDER)
+    save_location_label.config(text=PATH_FOLDER)
 
 def get_date_range():
     print("Getting date range...")
@@ -256,7 +313,7 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
             else:
                 new_filename = f"#{ticket_id}"
             
-            save_path = path_folder + new_filename + file_type
+            save_path = PATH_FOLDER + new_filename + FILE_TYPE
             
             with open(save_path, 'wb') as f:
                 for chunk in audio_response.iter_content(chunk_size=8192):
@@ -331,7 +388,7 @@ def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token
     except:
         print("Something has gone wrong")
     
-    print("\nProcess complete.")
+    print("\n--- Process complete ---")
 
 def validate_settings():
     print("Validating Settings...")
@@ -341,7 +398,7 @@ def validate_settings():
         return("Something went wrong when populating your credentials.")
 
     #Validate save location
-    if len(path_folder) < 1 or os.path.exists(path_folder) == False:
+    if len(PATH_FOLDER) < 1 or os.path.exists(PATH_FOLDER) == False:
         return("Something went wrong when checking the save location.")
 
     #Validate dates
@@ -359,8 +416,20 @@ def start_process():
 
     if(validation == True):
         print("--- Settings Validated ---")
+        
+        # Format the date for the UI
+        date_format = ""
+        for char in DATE_DISPLAY_FORMAT:
+            if char not in date_format:
+                date_format = date_format+"%"+char+"-"
+        date_format=date_format[:8]
+        start_date = datetime.strptime(START_DATE, '%Y-%m-%d').date()
+        start_date_display = start_date.strftime(date_format)
+        end_date = datetime.strptime(END_DATE, '%Y-%m-%d').date()
+        end_date_display = end_date.strftime(date_format)
+
         #Get final confirmation
-        confirmation = messagebox.askyesno("Confirmation", "You are about to download all call recordings between "+START_DATE+" and "+END_DATE+". They will be saved at '"+path_folder+"'. Do you want to continue?")
+        confirmation = messagebox.askyesno("Confirmation", "You are about to download all call recordings between "+start_date_display+" and "+end_date_display+". They will be saved at '"+PATH_FOLDER+"'. Do you want to continue?")
         if confirmation == False:
             print("!!! Process Aborted !!!")
             return
@@ -400,6 +469,8 @@ def cancel_process():
     if(process_running):
         print("--- Cancelling Process ---")
         stop_process = True
+    else:
+        show_message("info", "Downloading Complete", "The process has completed. All found recordings have been downloaded to your selected location. Please ensure these are handled in-line with data protection regulations.")
 
 def main_loop():
     global root, t2, process_running
