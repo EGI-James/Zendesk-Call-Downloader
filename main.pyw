@@ -48,8 +48,10 @@ def load_UI():
     global root
     root = tk.Tk()
     #root.withdraw()
-    root.geometry("500x800")
+    root.geometry("500x850")
     root.title("Zendesk Call Downloading")
+    # Set the window icon.
+    root.iconbitmap(sys.executable)
 
     menu = Menu(root, tearoff = 0)
     root.config(menu=menu)
@@ -115,11 +117,13 @@ def load_UI():
 def edit_prefs():
     print ("--- Editing Prefs ---")
 
-    global FILE_TYPE, DATE_DISPLAY_FORMAT
+    global FILE_TYPE, DATE_DISPLAY_FORMAT, prefs_popup
 
     prefs_popup = Toplevel()
     prefs_popup.geometry("200x100")
     prefs_popup.title("Preferences")
+    # Set the window icon.
+    prefs_popup.iconbitmap(sys.executable)
 
     frame = Frame(prefs_popup)
     frame.grid(row=0, column=0, padx=20, pady=20)
@@ -138,18 +142,19 @@ def edit_prefs():
     date_format_entry.insert(END, DATE_DISPLAY_FORMAT)
     date_format_entry.grid(row=2, column=1)
 
-    save_button = ttk.Button(frame, text="Save", command=lambda: save_prefs(extension_entry.get(), file_naming_entry.get(), date_format_entry.get()))
+    save_button = ttk.Button(frame, text="Save", command=lambda: save_prefs(extension_entry.get(), date_format_entry.get()))
     save_button.grid(row=3, column=0)
 
 def save_prefs(extension, date_format):
     print("--- Saving Prefs ---")
     
-    global FILE_TYPE, DATE_DISPLAY_FORMAT
+    global FILE_TYPE, DATE_DISPLAY_FORMAT, prefs_popup
 
     FILE_TYPE = extension
     DATE_DISPLAY_FORMAT = date_format
 
     save_settings()
+    prefs_popup.destroy()
 
 def load_settings():
     global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, FILE_TYPE, DATE_DISPLAY_FORMAT
@@ -184,6 +189,8 @@ def edit_credentials():
     credentials_popup = Toplevel()
     credentials_popup.geometry("450x120")
     credentials_popup.title("Credentials")
+    # Set the window icon.
+    credentials_popup.iconbitmap(sys.executable)
     
     frame = Frame(credentials_popup)
     frame.grid(row=0, column=0, padx=20, pady=20)
@@ -492,8 +499,9 @@ def quit():
                 t2.join()
         except NameError:
             pass
-        sys.exit
         root.destroy()
+        root.quit()
+        os._exit(os.EX_OK)
 
 def show_message(type, title, message):
     if type.lower()=="info":
