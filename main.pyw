@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 
 import threading
 
+from urllib.parse import urlparse, parse_qs
+
+
 #save location and file type variables
 PATH_FOLDER = "-"
 FILE_TYPE = ".mp3"
@@ -26,6 +29,8 @@ FILE_TYPE = ".mp3"
 ZENDESK_SUBDOMAIN = ""
 ZENDESK_EMAIL = ""
 ZENDESK_TOKEN = ""
+AUTH = ""
+BASE_URL = ""
 
 #Dates in yyyy-mm-dd format
 DATE_DISPLAY_FORMAT = "dd-mm-yyyy"
@@ -37,11 +42,16 @@ stop_process = False
 process_running = False
 
 #Time to wait (seconds) between downloads to try and stay within API rate limits
-rate_limit_delay = 1
+rate_limit_delay = 0.2
+
+TOTAL_CALLS = 0
 
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
     load_settings()
+    global AUTH, BASE_URL
+    AUTH = (f"{ZENDESK_EMAIL}/token", ZENDESK_TOKEN)
+    BASE_URL = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2"
     load_UI()
 
 def load_UI():
@@ -254,7 +264,7 @@ def get_date_range():
     print("Start Date: "+START_DATE)
     print("End Date: "+END_DATE)
 
-def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, ticket_id):
+def download_call_recording(ticket_id):
     """
     Downloads a call recording from a Zendesk ticket and renames it.
     
@@ -265,15 +275,14 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
     # -----------------------------------------------------------
     # API Endpoints
     # -----------------------------------------------------------
-    audits_url = f"https://{zendesk_subdomain}.zendesk.com/api/v2/tickets/{ticket_id}/audits.json"
-    auth = (f"{zendesk_email}/token", zendesk_token)
+    audits_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}/audits.json"
     
     print(f"Searching for recording for ticket {ticket_id}...")
     
     recording_urls = []
 
     try:
-        response = requests.get(audits_url, auth=auth)
+        response = requests.get(audits_url, auth=AUTH)
         response.raise_for_status()
         
         data = response.json()
@@ -305,8 +314,10 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
         recording_counter = 0
 
         for recording in recording_urls:
-
-            audio_response = requests.get(recording, stream=True, auth=auth)
+            global TOTAL_CALLS
+            TOTAL_CALLS += 1
+            return # Here for testing
+            audio_response = requests.get(recording, stream=True, auth=AUTH)
             
             #check the status codes of the response
             #410 - Missing file
@@ -338,64 +349,119 @@ def download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, tic
         print(f"An unexpected error occurred: {err}")
     return True
 
-def find_tickets_with_recordings(zendesk_subdomain, zendesk_email, zendesk_token, start_date_str, end_date_str):
+def find_tickets_with_recordings(start_date_str, end_date_str):
     """
-    Finds and downloads call recordings for tickets created within a specified date range.
+    Finds call recordings for tickets created within a specified date range.
     """
     global stop_process, start_button, cancel_button, process_running, rate_limit_delay
 
     process_running = True
+
+    current_start_date = start_date_str
+    end_date = end_date_str
     
-    search_url = f"https://{zendesk_subdomain}.zendesk.com/api/v2/search.json"
-    auth = (f"{zendesk_email}/token", zendesk_token)
+    query_template = (
+            f"type:ticket created>{current_start_date} created<{end_date}"
+        )
+    params = {'query': query_template, 'sort_by': 'created_at', 'sort_order': 'asc'}
+    search_url = f"{BASE_URL}/search.json"
     
-    # Zendesk search query for tickets created within the date range
-    query = f"type:ticket created>{start_date_str} created<{end_date_str}"
-    
-    params = {'query': query}
-    
-    print(f"Searching for tickets created between {start_date_str} and {end_date_str}...")
-    
-    has_more_results = True
     next_page_url = search_url
+    tickets = []
     
     try:
         if stop_process == True:
             return
-        while has_more_results:
-            response = requests.get(next_page_url, auth=auth, params=params if next_page_url == search_url else None)
-            response.raise_for_status()
-            data = response.json()
+        print(f"\n--- Starting search for voice tickets from {current_start_date} up to {end_date} ---")
+
+        while next_page_url:
+            print(f"\nFetching page from URL: {next_page_url}")
+            data = _make_request(next_page_url, params)
             
-            results = data.get('results', [])
-            if not results:
-                print("No tickets found in the specified date range.")
+            if not data or 'results' not in data:
+                print("No more results or an unrecoverable API error occurred.")
                 break
 
-            print("Number of tickets found: "+str(len(results)))
-                
+            results = data['results']
+            
+            if not results:
+                print("Current page has no tickets within the current criteria. Finishing search.")
+                break
+
+            next_page_url = data.get('next_page')
+   
             for ticket in results:
                 if stop_process == True:
                     return
                 ticket_id = ticket['id']
-                # The download_call_recording function handles checking for a recording
-                download_call_recording(zendesk_subdomain, zendesk_email, zendesk_token, ticket_id)
-                Time.sleep(rate_limit_delay) # Add a small delay
+                tickets.append(ticket_id)
                 
-            has_more_results = data.get('next_page') is not None
-            if has_more_results:
-                next_page_url = data['next_page']
-                print("Fetching next page of results...")
+            if next_page_url:
+                parsed_url = urlparse(next_page_url)
+                params = parse_qs(parsed_url.query)
+                page_num = int(params.get('page', ['1'])[0])
+
+                if page_num >= 11:
+                    # When we hit the limit, the last ticket processed contains the
+                    # checkpoint time for the *next* search iteration.
+                    last_ticket_created_at = get_ticket_date(tickets[-1])
+                    
+                    print("\n--- HIGH VOLUME ALERT: HITTING SEARCH LIMIT ---")
+                    print(f"Pagination limit reached (next page is {page_num}). Shifting start date.")
+                    
+                    # Update the current start date to the creation time of the last ticket
+                    current_start_date = last_ticket_created_at
+                    
+                    # Reset URL, query, and params; forcing it back to page 1
+                    query_template = (f"type:ticket created>{current_start_date} created<{end_date}")
+                    next_page_url = search_url
+                    params = {'query': query_template, 'sort_by': 'created_at', 'sort_order': 'asc'}
+                    
+                    print(f"New search range starts FROM: {current_start_date}")
+                    print("--- Continuing search with new checkpoint ---")
+                    
+            else:
+                # No next_page and not a date shift, so the search is fully complete.
+                break
             
+        tickets_to_search = len(tickets)
+        for ticket in tickets:
+            if stop_process:
+                return
+            download_call_recording(ticket)
+            tickets_to_search -= 1
+            print("Tickets Left: "+str(tickets_to_search))
+            Time.sleep(rate_limit_delay) # Add a small delay
+
     except requests.exceptions.HTTPError as err:
         print(f"HTTP Error: {err}")
         print("Please check your Zendesk subdomain, email, and API token or the date format.")
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
-    except:
-        print("Something has gone wrong")
+    # except:
+    #     print("Something has gone wrong")
     
     print("\n--- Process complete ---")
+    print("Total Tickets found: "+str(len(tickets)))
+    print("Total Calls Found: "+str(TOTAL_CALLS))
+
+def get_ticket_date(ticket_id):
+    audits_url = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}/audits.json"
+    #get the date and time of the last ticket
+    ticket_response = requests.get(audits_url, auth=AUTH)
+    ticket_response.raise_for_status()
+
+    ticket_data = ticket_response.json()
+    print("Ticket Result: "+str(ticket_data))
+
+    if 'audits' in ticket_data and ticket_data['audits']:
+        for audit in reversed(ticket_data['audits']):
+            continue_start_date = audit.get('created_at')
+            print("Last ticket date: "+continue_start_date)
+            #query = f"type:ticket created>{continue_start_date} created<{end_date_str}"
+            start_date_str = continue_start_date[:10]
+            print(start_date_str)
+            return start_date_str
 
 def validate_settings():
     print("Validating Settings...")
@@ -415,6 +481,22 @@ def validate_settings():
         return("Start and End dates cannot be in the future.")
     
     return True
+
+def _make_request(url, params):
+        """Helper to handle API requests, authentication, and error checking."""
+        try:
+            print("URL: "+ url)
+            response = requests.get(url, auth=AUTH, params=params)
+            response.raise_for_status()  # Raises HTTPError for bad responses (4xx or 5xx)
+            return response.json()
+        except requests.exceptions.HTTPError as err:
+            print(f"HTTP Error for {url}: {err}")
+            if response.status_code == 429:
+                print("Rate limit exceeded. Please wait and try again.")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"An error occurred during request to {url}: {e}")
+            return None
     
 def start_process():
     
@@ -451,7 +533,7 @@ def start_process():
         global progress_bar, cancel_button, start_button, t2, stop_process
 
         #t2 is the thread for the searching/downloading process
-        t2 = threading.Thread(target=find_tickets_with_recordings, args=(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, START_DATE, END_DATE))
+        t2 = threading.Thread(target=find_tickets_with_recordings, args=(START_DATE, END_DATE))
 
         cancel_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
         start_button.grid_remove()
