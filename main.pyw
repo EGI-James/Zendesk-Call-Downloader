@@ -48,6 +48,7 @@ rate_limit_delay = 0.2
 
 TICKETS_SEARCHED = 0
 TOTAL_CALLS = 0
+STATUS = "PREPARING..."
 
 def set_up():
     print("Starting Zendesk Call Recording Download Tool...")
@@ -61,7 +62,7 @@ def load_UI():
     global root
     root = tk.Tk()
     #root.withdraw()
-    root.geometry("500x850")
+    root.geometry("500x870")
     root.title("Zendesk Call Downloading")
     # Set the window icon.
     root.iconbitmap(sys.executable)
@@ -123,6 +124,9 @@ def load_UI():
 
     exit_button = ttk.Button(root, text="Quit", command=quit)
     exit_button.grid(row=3, column=0, sticky=E, pady=(10, 20))
+
+    global status_label
+    status_label = ttk.Label(root, text=STATUS, wraplength=400, justify=CENTER)
 
     global progress_bar
     progress_bar = ttk.Progressbar(root, orient = HORIZONTAL, length = 400, mode = 'indeterminate')
@@ -280,7 +284,7 @@ def download_call_recording(ticket_id):
     This function uses the Zendesk API to fetch the latest audit for a ticket,
     which may contain the call recording URL. It then downloads the file.
     """
-    
+    global STATUS
     # -----------------------------------------------------------
     # API Endpoints
     # -----------------------------------------------------------
@@ -352,19 +356,23 @@ def download_call_recording(ticket_id):
 
     except requests.exceptions.HTTPError as err:
             print(f"HTTP Error: {err}")
+            STATUS = (f"HTTP Error: {err}")
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
+        STATUS = (f"An error occurred: {err}")
     except Exception as err:
         print(f"An unexpected error occurred: {err}")
+        STATUS = (f"An unexpected error occurred: {err}")
     return True
 
 def find_tickets_with_recordings(start_date_str, end_date_str):
     """
     Finds call recordings for tickets created within a specified date range.
     """
-    global stop_process, start_button, cancel_button, process_running, rate_limit_delay, downloading_running, tickets_to_search, TICKETS_SEARCHED
+    global stop_process, start_button, cancel_button, process_running, rate_limit_delay, downloading_running, tickets_to_search, TICKETS_SEARCHED, STATUS
 
     process_running = True
+    STATUS = "Getting tickets..."
 
     current_start_date = start_date_str
     end_date = end_date_str
@@ -381,20 +389,20 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
     try:
         if stop_process == True:
             return
-        print(f"\n--- Starting search for voice tickets from {current_start_date} up to {end_date} ---")
+        STATUS = (f"\n--- Starting search for voice tickets from {current_start_date} up to {end_date} ---")
 
         while next_page_url:
             print(f"\nFetching page from URL: {next_page_url}")
             data = _make_request(next_page_url, params)
             
             if not data or 'results' not in data:
-                print("No more results or an unrecoverable API error occurred.")
+                STATUS = ("No more results or an unrecoverable API error occurred.")
                 break
 
             results = data['results']
             
             if not results:
-                print("Current page has no tickets within the current criteria. Finishing search.")
+                STATUS = ("Current page has no tickets within the current criteria. Finishing search.")
                 break
 
             next_page_url = data.get('next_page')
@@ -445,18 +453,19 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
             download_call_recording(ticket)
             tickets_to_search -= 1
             TICKETS_SEARCHED += 1
-            print("Tickets Left: "+str(tickets_to_search))
+            STATUS = ("Searching tickets for recordings. Tickets Left: "+str(tickets_to_search))
             Time.sleep(rate_limit_delay) # Add a small delay
 
     except requests.exceptions.HTTPError as err:
         print(f"HTTP Error: {err}")
         print("Please check your Zendesk subdomain, email, and API token or the date format.")
+        STATUS = "Please check your Zendesk subdomain, email, and API token or the date format."
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
     # except:
     #     print("Something has gone wrong")
     
-    print("\n--- Process complete ---")
+    STATUS = ("\n--- Process complete ---")
     print("Total Tickets found: "+str(len(tickets)))
     print("Total Calls Found: "+str(TOTAL_CALLS))
 
@@ -545,7 +554,7 @@ def start_process():
     if ZENDESK_SUBDOMAIN == None or ZENDESK_TOKEN == None:
         print("Something went wrong when populating the credentials.")
     else:
-        global progress_bar, cancel_button, start_button, t2, stop_process
+        global progress_bar, cancel_button, start_button, t2, stop_process, status_label
 
         #t2 is the thread for the searching/downloading process
         t2 = threading.Thread(target=find_tickets_with_recordings, args=(str(START_DATE.isoformat())+'Z', str(END_DATE.isoformat())+'Z'))
@@ -553,8 +562,10 @@ def start_process():
         cancel_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
         start_button.grid_remove()
 
-        progress_bar.grid(row=4, columnspan=2)
+        progress_bar.grid(row=5, columnspan=2)
         progress_bar.start()
+
+        status_label.grid(row=4, columnspan=2)
 
         stop_process = False
         t2.start()
@@ -562,7 +573,7 @@ def start_process():
         #download_call_recording(ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, test_ticket_id)
 
 def cancel_process():
-    global stop_process, progress_bar, process_running
+    global stop_process, progress_bar, process_running, status_label, STATUS
 
     progress_bar.stop()
     progress_bar.configure(mode='indeterminate')
@@ -572,19 +583,26 @@ def cancel_process():
     cancel_button.grid_remove()
     start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
+    status_label.grid_remove()
+
     if(process_running):
         print("--- Cancelling Process ---")
+        STATUS = "Cancelling Process..."
         stop_process = True
+    elif(stop_process == True):
+        show_message("warning", "Process Cancelled", "The process has been cancelled. All found recordings have been downloaded to your selected location. Please ensure these are handled in-line with data protection regulations.")
     else:
         show_message("info", "Downloading Complete", "The process has completed. All found recordings have been downloaded to your selected location. Please ensure these are handled in-line with data protection regulations.")
 
 def main_loop():
-    global root, t2, process_running, progress_bar, downloading_running, tickets_to_search, TICKETS_SEARCHED
+    global root, t2, process_running, progress_bar, downloading_running, tickets_to_search, TICKETS_SEARCHED, STATUS, status_label
     while True:
         if(downloading_running and TICKETS_SEARCHED == 0):
             #update progress bar mode and max value
             progress_bar.configure(mode='determinate', maximum=(tickets_to_search+1))
         # Check if process has finished running
+        if (process_running):
+            status_label.configure(text=STATUS)
         if(process_running and t2.is_alive() != True):
             process_running = False
             downloading_running = False
