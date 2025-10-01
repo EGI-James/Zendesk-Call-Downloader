@@ -174,7 +174,7 @@ def save_prefs(extension, date_format):
     prefs_popup.destroy()
 
 def load_settings():
-    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, FILE_TYPE, DATE_DISPLAY_FORMAT
+    global ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_TOKEN, FILE_TYPE, DATE_DISPLAY_FORMAT, BASE_URL, AUTH
 
     if (os.path.isfile('.env')):
         #load from .env file. Override if already loaded
@@ -183,10 +183,12 @@ def load_settings():
         # Load environment variables if they exist
         if ("SUBDOMAIN" in os.environ):
             ZENDESK_SUBDOMAIN = os.getenv("SUBDOMAIN")
+            BASE_URL = f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2"
         if ("EMAIL" in os.environ):
             ZENDESK_EMAIL = os.getenv("EMAIL")
         if ("API_TOKEN" in os.environ):
             ZENDESK_TOKEN = os.getenv("API_TOKEN")
+        AUTH = (f"{ZENDESK_EMAIL}/token", ZENDESK_TOKEN)
         if ("FILE_TYPE" in os.environ):
             FILE_TYPE = os.getenv("FILE_TYPE")
         if ("DATE_DISPLAY" in os.environ):
@@ -355,8 +357,8 @@ def download_call_recording(ticket_id):
             print(f"Download complete. File saved as: {new_filename}")
 
     except requests.exceptions.HTTPError as err:
-            print(f"HTTP Error: {err}")
-            STATUS = (f"HTTP Error: {err}")
+        print(f"HTTP Error: {err}")
+        STATUS = (f"HTTP Error: {err}")
     except requests.exceptions.RequestException as err:
         print(f"An error occurred: {err}")
         STATUS = (f"An error occurred: {err}")
@@ -389,7 +391,8 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
     try:
         if stop_process == True:
             return
-        STATUS = (f"\n--- Starting search for voice tickets from {current_start_date} up to {end_date} ---")
+        STATUS = (f"Starting search for voice tickets from {current_start_date} up to {end_date}...")
+        print(f"\n--- Starting search for voice tickets from {current_start_date} up to {end_date} ---")
 
         while next_page_url:
             print(f"\nFetching page from URL: {next_page_url}")
@@ -397,12 +400,14 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
             
             if not data or 'results' not in data:
                 STATUS = ("No more results or an unrecoverable API error occurred.")
+                print("No more results or an unrecoverable API error occurred.")
                 break
 
             results = data['results']
             
             if not results:
                 STATUS = ("Current page has no tickets within the current criteria. Finishing search.")
+                print("Current page has no tickets within the current criteria. Finishing search.")
                 break
 
             next_page_url = data.get('next_page')
@@ -453,6 +458,8 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
             download_call_recording(ticket)
             tickets_to_search -= 1
             TICKETS_SEARCHED += 1
+            if stop_process == True:
+                return
             STATUS = ("Searching tickets for recordings. Tickets Left: "+str(tickets_to_search))
             Time.sleep(rate_limit_delay) # Add a small delay
 
@@ -580,10 +587,11 @@ def cancel_process():
     progress_bar['value'] = 0
     progress_bar.grid_remove()
 
-    cancel_button.grid_remove()
-    start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
+    cancel_button.config(state=tk.DISABLED)
+    # cancel_button.grid_remove()
+    # start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
 
-    status_label.grid_remove()
+    # status_label.grid_remove()
 
     if(process_running):
         print("--- Cancelling Process ---")
@@ -591,8 +599,16 @@ def cancel_process():
         stop_process = True
     elif(stop_process == True):
         show_message("warning", "Process Cancelled", "The process has been cancelled. All found recordings have been downloaded to your selected location. Please ensure these are handled in-line with data protection regulations.")
+        cancel_button.config(state=tk.NORMAL)
+        cancel_button.grid_remove()
+        start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
+        status_label.grid_remove()
     else:
         show_message("info", "Downloading Complete", "The process has completed. All found recordings have been downloaded to your selected location. Please ensure these are handled in-line with data protection regulations.")
+        cancel_button.config(state=tk.NORMAL)
+        cancel_button.grid_remove()
+        start_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
+        status_label.grid_remove()
 
 def main_loop():
     global root, t2, process_running, progress_bar, downloading_running, tickets_to_search, TICKETS_SEARCHED, STATUS, status_label
