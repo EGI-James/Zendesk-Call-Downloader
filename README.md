@@ -6,7 +6,7 @@ This program allows for a user to download call recordings for every Zendesk tic
 
 The program uses the Zendesk API to make calls for ticket information and is written in Python using additional libraries for the UI and storing user settings. The UI is created using the Tkinter Python Library, which does the job, even if it isn't the most modern looking.
 
-The options menu gives you the ability to change the credentials that are used to access the Zendesk API and some basic preferences such as file extension.
+The options menu gives you the ability to change the credentials that are used to access the Zendesk API and some basic preferences such as file extension. The date selection is inclusive.
 
 ## To access the Zendesk API for your domain, you'll need the following information:
  ### Your Zendesk domain
@@ -33,4 +33,4 @@ The options menu gives you the ability to change the credentials that are used t
  `pyinstaller main.pyw --distpath "<path/to/folder>" --workpath "<path/to/folder>" --noconsole --onefile --icon=zendesk_call_downloader.ico --name "Zendesk Call Downloader"`
 
  ## Repo Maintaining
- This project is uploaded to a Github account managed linked to a company managed email address. You can find my personal account at [Pricey1600](https://github.com/Pricey1600).
+ This project is uploaded to a Github account linked to a company managed email address. You can find my personal account at [Pricey1600](https://github.com/Pricey1600).

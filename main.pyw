@@ -40,10 +40,13 @@ END_DATE = "2025-01-03"
 #Used for stopping the searching/downloading process
 stop_process = False
 process_running = False
+downloading_running = False
+progress_bar_changed = False
 
 #Time to wait (seconds) between downloads to try and stay within API rate limits
 rate_limit_delay = 0.2
 
+TICKETS_SEARCHED = 0
 TOTAL_CALLS = 0
 
 def set_up():
@@ -91,7 +94,7 @@ def load_UI():
     dates_labelFrame.grid(row=2, column=0, columnspan=2, pady=10)
     start_date_label = ttk.Label(dates_labelFrame, text='Start Date')
     start_date_label.grid(row=0, column=0, sticky=E, pady=20)
-    ToolTip(start_date_label, msg="The start of the date range to search (exclusive)", delay=2.0)
+    ToolTip(start_date_label, msg="The start of the date range to search (inclusive)", delay=2.0)
 
     todays_date = date.today()
     global cal_start
@@ -103,7 +106,7 @@ def load_UI():
 
     end_date_label = Label(dates_labelFrame, text='End Date')
     end_date_label.grid(row=1, column=0, sticky=E, pady=20)
-    ToolTip(end_date_label, msg="The end of the date range to search (exclusive)", delay=2.0)
+    ToolTip(end_date_label, msg="The end of the date range to search (inclusive)", delay=2.0)
     global cal_end
     cal_end = Calendar(dates_labelFrame, selectmode = 'day', date_pattern="yyy-mm-dd",
                year = todays_date.year, month = todays_date.month,
@@ -261,8 +264,14 @@ def get_date_range():
     START_DATE = cal_start.get_date()
     END_DATE = cal_end.get_date()
 
-    print("Start Date: "+START_DATE)
-    print("End Date: "+END_DATE)
+    # Add times to dates
+    START_DATE = START_DATE + " 00:00:00"
+    START_DATE = datetime.strptime(START_DATE, '%Y-%m-%d %H:%M:%S')
+    END_DATE = END_DATE + " 23:59:59"
+    END_DATE = datetime.strptime(END_DATE, '%Y-%m-%d %H:%M:%S')
+
+    print("Start Date: "+str(START_DATE.isoformat()))
+    print("End Date: "+str(END_DATE.isoformat()))
 
 def download_call_recording(ticket_id):
     """
@@ -312,11 +321,9 @@ def download_call_recording(ticket_id):
         # -----------------------------------------------------------
         print(f"Downloading audio file(s) for ticket {ticket_id}...")
         recording_counter = 0
+        global TOTAL_CALLS
 
         for recording in recording_urls:
-            global TOTAL_CALLS
-            TOTAL_CALLS += 1
-            return # Here for testing
             audio_response = requests.get(recording, stream=True, auth=AUTH)
             
             #check the status codes of the response
@@ -333,6 +340,8 @@ def download_call_recording(ticket_id):
             
             save_path = PATH_FOLDER + new_filename + FILE_TYPE
             
+            TOTAL_CALLS += 1
+
             with open(save_path, 'wb') as f:
                 for chunk in audio_response.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -353,7 +362,7 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
     """
     Finds call recordings for tickets created within a specified date range.
     """
-    global stop_process, start_button, cancel_button, process_running, rate_limit_delay
+    global stop_process, start_button, cancel_button, process_running, rate_limit_delay, downloading_running, tickets_to_search, TICKETS_SEARCHED
 
     process_running = True
 
@@ -394,7 +403,10 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
                 if stop_process == True:
                     return
                 ticket_id = ticket['id']
-                tickets.append(ticket_id)
+                if ticket_id not in tickets:
+                    tickets.append(ticket_id)
+
+            print("--- Tickets Found So Far: "+str(len(tickets))+" ---")
                 
             if next_page_url:
                 parsed_url = urlparse(next_page_url)
@@ -425,11 +437,14 @@ def find_tickets_with_recordings(start_date_str, end_date_str):
                 break
             
         tickets_to_search = len(tickets)
+        print("--- Tickets Found: "+str(tickets_to_search)+" ---")
+        downloading_running = True
         for ticket in tickets:
             if stop_process:
                 return
             download_call_recording(ticket)
             tickets_to_search -= 1
+            TICKETS_SEARCHED += 1
             print("Tickets Left: "+str(tickets_to_search))
             Time.sleep(rate_limit_delay) # Add a small delay
 
@@ -452,14 +467,14 @@ def get_ticket_date(ticket_id):
     ticket_response.raise_for_status()
 
     ticket_data = ticket_response.json()
-    print("Ticket Result: "+str(ticket_data))
+    #print("Ticket Result: "+str(ticket_data))
 
     if 'audits' in ticket_data and ticket_data['audits']:
-        for audit in reversed(ticket_data['audits']):
+        for audit in ticket_data['audits']:
             continue_start_date = audit.get('created_at')
             print("Last ticket date: "+continue_start_date)
             #query = f"type:ticket created>{continue_start_date} created<{end_date_str}"
-            start_date_str = continue_start_date[:10]
+            start_date_str = continue_start_date
             print(start_date_str)
             return start_date_str
 
@@ -475,9 +490,9 @@ def validate_settings():
         return("Something went wrong when checking the save location.")
 
     #Validate dates
-    if len(START_DATE) < 10 or len(END_DATE) < 10:
-        return("Something went wrong when checking the date range.")
-    elif datetime.strptime(START_DATE, '%Y-%m-%d').date() > date.today() or datetime.strptime(END_DATE, '%Y-%m-%d').date() > (date.today() + timedelta(1)):
+    # if len(START_DATE) < 10 or len(END_DATE) < 10:
+    #     return("Something went wrong when checking the date range.")
+    if START_DATE > datetime.now() or END_DATE > ((datetime.now()+ timedelta(1))):
         return("Start and End dates cannot be in the future.")
     
     return True
@@ -512,9 +527,9 @@ def start_process():
             if char not in date_format:
                 date_format = date_format+"%"+char+"-"
         date_format=date_format[:8]
-        start_date = datetime.strptime(START_DATE, '%Y-%m-%d').date()
+        start_date = START_DATE.date()
         start_date_display = start_date.strftime(date_format)
-        end_date = datetime.strptime(END_DATE, '%Y-%m-%d').date()
+        end_date = END_DATE.date()
         end_date_display = end_date.strftime(date_format)
 
         #Get final confirmation
@@ -533,7 +548,7 @@ def start_process():
         global progress_bar, cancel_button, start_button, t2, stop_process
 
         #t2 is the thread for the searching/downloading process
-        t2 = threading.Thread(target=find_tickets_with_recordings, args=(START_DATE, END_DATE))
+        t2 = threading.Thread(target=find_tickets_with_recordings, args=(str(START_DATE.isoformat())+'Z', str(END_DATE.isoformat())+'Z'))
 
         cancel_button.grid(row=3, column=1, sticky=W, pady=(10, 20))
         start_button.grid_remove()
@@ -550,6 +565,8 @@ def cancel_process():
     global stop_process, progress_bar, process_running
 
     progress_bar.stop()
+    progress_bar.configure(mode='indeterminate')
+    progress_bar['value'] = 0
     progress_bar.grid_remove()
 
     cancel_button.grid_remove()
@@ -562,13 +579,23 @@ def cancel_process():
         show_message("info", "Downloading Complete", "The process has completed. All found recordings have been downloaded to your selected location. Please ensure these are handled in-line with data protection regulations.")
 
 def main_loop():
-    global root, t2, process_running
+    global root, t2, process_running, progress_bar, downloading_running, tickets_to_search, TICKETS_SEARCHED
     while True:
-        root.update()
+        if(downloading_running and TICKETS_SEARCHED == 0):
+            #update progress bar mode and max value
+            progress_bar.configure(mode='determinate', maximum=(tickets_to_search+1))
         # Check if process has finished running
         if(process_running and t2.is_alive() != True):
             process_running = False
+            downloading_running = False
+            TICKETS_SEARCHED = 0
             cancel_process()
+        elif downloading_running:
+            #update progress bar
+            progress_bar['value'] = TICKETS_SEARCHED
+        
+        # Update the window
+        root.update()
 
 def quit():
     global t2, stop_process
