@@ -61,9 +61,8 @@ def set_up():
 def load_UI():
     global root
     root = tk.Tk()
-    #root.withdraw()
     root.geometry("500x870")
-    root.title("Zendesk Call Downloading")
+    root.title("Zendesk Call Downloader")
     # Set the window icon.
     root.iconbitmap(sys.executable)
 
@@ -79,7 +78,7 @@ def load_UI():
     root.columnconfigure(0, weight=3)
     root.columnconfigure(1, weight=3)
 
-    title_label = ttk.Label(root, text="Zendesk Call Downloading", anchor=CENTER, font=("Arial", 20, "bold"))
+    title_label = ttk.Label(root, text="Zendesk Call Downloader", anchor=CENTER, font=("Arial", 20, "bold"))
     title_label.grid(row=0, columnspan=2, pady=(20, 0))
 
     save_location_labelFrame = ttk.Labelframe(root, text='Save Location')
